@@ -1,0 +1,93 @@
+import streamlit as st
+from dotenv import load_dotenv
+from langchain_community.utilities import SQLDatabase
+from langchain_openai import ChatOpenAI
+from langchain_community.agent_toolkits import create_sql_agent
+import os
+
+load_dotenv()
+
+st.set_page_config(
+    page_title="TerraQuery",
+    page_icon="🏺",
+    layout="wide"
+)
+
+st.title("🏺 TerraQuery")
+st.markdown("**Arkeoloji Veritabanı Doğal Dil Arayüzü**")
+st.markdown("Türkçe veya İngilizce sorunuzu yazın, veritabanı otomatik sorgulanır.")
+st.divider()
+
+def sistemi_yukle():
+    db = SQLDatabase.from_uri(
+        "postgresql+psycopg2://terraquery_user:terraquery123@localhost/terraquery_db"
+    )
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    turkce_talimat = """Sen TerraQuery adlı bir arkeoloji veritabanı asistanısın.
+Kullanıcılar sana Türkçe veya İngilizce sorular sorabilir. Sonuçları Türkçe açıkla.
+
+Veritabanında şu tablolar var:
+- acma: Kazı açmaları (id, acma_adi, lokasyon, baslangic_tarihi, sorumlu_arkeolog)
+- tabaka: Stratigrafik tabakalar (id, acma_id, tabaka_no, derinlik_cm, donem, aciklama)
+- eser: Bulunan arkeolojik eserler (id, tabaka_id, eser_tipi, malzeme, durum, muhurlu, buluntu_tarihi, aciklama)
+
+Kritik kurallar:
+- "mühürlü" ifadesi muhurlu = TRUE anlamına gelir
+- Tabaka numaraları Romen rakamıyla belirtilir: I, II, III, IV, V
+- "IV. tabakanın altında" demek tabaka_no = 'V' demektir
+- "III. tabakanın altında" demek tabaka_no IN ('IV','V') demektir
+- Tablolar arası ilişki: eser.tabaka_id -> tabaka.id -> acma.id
+- - Bir eserin dönemi tabaka.donem üzerinden JOIN ile bulunur, eser tablosunda donem sütunu yoktur
+- Sadece SELECT sorguları kullan
+- Final cevabını vermeden önce sorgunun doğru sonuç verdiğini kontrol et"""
+
+    agent = create_sql_agent(
+        llm=llm,
+        db=db,
+        verbose=False,
+        prefix=turkce_talimat,
+        handle_parsing_errors=True,
+        max_iterations=10
+    )
+    return agent
+
+if "agent" not in st.session_state:
+    with st.spinner("Sistem yükleniyor..."):
+        st.session_state.agent = sistemi_yukle()
+
+st.success("✓ Sistem hazır!")
+
+st.markdown("**💡 Örnek Sorular:**")
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("Açma-3'teki mühürlü keramikler"):
+        st.session_state.soru = "Açma-3'te IV. tabakanın altında bulunan tüm mühürlü keramikleri listele"
+with col2:
+    if st.button("Tüm açmaları listele"):
+        st.session_state.soru = "Tüm açmaları ve sorumlu arkeologları listele"
+with col3:
+    if st.button("En derin tabakalar"):
+        st.session_state.soru = "En derin tabakaları derinliklerine göre sırala"
+
+st.divider()
+
+soru = st.text_input(
+    "Sorunuzu yazın:",
+    value=st.session_state.get("soru", ""),
+    placeholder="Örn: Açma-3'te kaç eser bulunmuştur?"
+)
+
+if st.button("🔍 Sorgula", type="primary"):
+    if soru:
+        with st.spinner("Sorgu işleniyor..."):
+            try:
+                cevap = st.session_state.agent.invoke({"input": soru})
+                st.markdown("### 📋 Sonuç")
+                st.write(cevap["output"])
+            except Exception as e:
+                st.error(f"Hata: {e}")
+    else:
+        st.warning("Lütfen bir soru yazın.")
+
+st.divider()
+st.caption("TerraQuery v0.1 — Powered by LangChain & OpenAI")

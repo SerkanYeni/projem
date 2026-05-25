@@ -1,0 +1,48 @@
+from dotenv import load_dotenv
+from langchain_community.utilities import SQLDatabase
+from langchain_community.agent_toolkits import create_sql_agent
+from langchain_openai import ChatOpenAI
+import os
+
+load_dotenv()
+
+db = SQLDatabase.from_uri(
+    "postgresql+psycopg2://terraquery_user:terraquery123@localhost/terraquery_db"
+)
+
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0
+)
+
+turkce_talimat = """
+Sen TerraQuery adlı bir arkeoloji veritabanı asistanısın.
+Kullanıcılar sana Türkçe veya İngilizce sorular sorabilir.
+
+Veritabanında şu tablolar var:
+- acma: Kazı açmaları (id, acma_adi, lokasyon, baslangic_tarihi, sorumlu_arkeolog)
+- tabaka: Stratigrafik tabakalar (id, acma_id, tabaka_no, derinlik_cm, donem, aciklama)
+- eser: Bulunan arkeolojik eserler (id, tabaka_id, eser_tipi, malzeme, durum, muhurlu, buluntu_tarihi, aciklama)
+
+Önemli kurallar:
+- "mühürlü" ifadesi muhurlu = TRUE anlamına gelir
+- Tabaka numaraları Romen rakamıyla belirtilir (I, II, III, IV, V)
+- Tablolar arasındaki ilişki: eser -> tabaka -> acma şeklindedir
+- Sadece SELECT sorguları üret, veri değiştirme işlemi yapma
+"""
+
+agent = create_sql_agent(
+    llm=llm,
+    db=db,
+    verbose=True,
+    prefix=turkce_talimat
+)
+
+print("✓ TerraQuery Türkçe prompt hazır!")
+
+soru = "Açma-3'te IV. tabakanın altında bulunan tüm mühürlü keramikleri listele"
+print(f"\nSoru: {soru}")
+print("-" * 50)
+cevap = agent.invoke({"input": soru})
+print("-" * 50)
+print(f"Cevap: {cevap['output']}")
